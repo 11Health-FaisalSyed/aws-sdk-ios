@@ -1,0 +1,252 @@
+# iOS CircleCI 2.0 configuration file
+#
+# Check https://circleci.com/docs/2.0/ios-migrating-from-1-2/ for more details
+#
+version: 2
+jobs:
+  build:
+    macos: 
+      xcode: "10.1.0"
+    steps:
+      - checkout
+
+      - run:
+          name: create credentials
+          command: |
+            echo "empty" > AWSCoreTests/Resources/credentials.json   
+
+      - run:
+          name: build sdk
+          command: xcodebuild  build-for-testing -project AWSiOSSDKv2.xcodeproj -scheme AWSAllTests -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 8,OS=12.1'         
+ 
+  unittest:
+    macos:
+      xcode: "10.1.0"
+
+    steps:
+      - checkout
+
+      - run:
+          name: create credentials
+          command: |
+            echo "empty" > AWSCoreTests/Resources/credentials.json 
+
+      - run:
+          name: build sdk
+          command: xcodebuild  build-for-testing -project AWSiOSSDKv2.xcodeproj -scheme AWSAllTests -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 8,OS=12.1'      
+  
+      - run :
+          name: run unit tests
+          command: bash CircleciScripts/run_unittests.sh
+
+      - run:
+          name : check unit test result 
+          command : bash CircleciScripts/check_unitest_result.sh
+
+      - store_artifacts:
+          path: test_result
+
+  integrationtest:
+    macos:
+      xcode: "10.1.0"
+
+    steps:
+      - checkout 
+      - run: git branch
+      - run: 
+          name: install json parser
+          command: pip3 install demjson
+      - run:
+          name: create credentials
+          command: |
+            echo ${AWS_CREDENTIALS}  | base64 --decode  > AWSCoreTests/Resources/credentials.json  
+      - run:
+          name: build sdk
+          command: xcodebuild  build-for-testing -project AWSiOSSDKv2.xcodeproj -scheme AWSAllTests -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 8,OS=12.1'      
+      - run :
+          name: run integration tests
+          command: |
+            mkdir integration_test_result
+            python3 CircleciScripts/run_integrationtests.py  CircleciScripts/integrationtests.json 
+      - run:
+          name : check unit test result 
+          command : bash CircleciScripts/check_integrationtest_result.sh
+
+
+      - store_test_results:
+          path: integration_test_result
+
+
+  release_carthage:    
+    macos:
+      xcode: "10.1.0"
+    steps: 
+      - checkout
+
+      - run:
+          name: create credentials
+          command: |
+            echo ${AWS_CREDENTIALS}  | base64 --decode  > AWSCoreTests/Resources/credentials.json  
+
+
+      - run:
+          name: install aws cli
+          command: |
+            brew install awscli
+      - run:
+          name: install custom carthage
+          command: |
+            aws s3 cp s3://custom-carthage/customcarthage.zip customcarthage.zip
+            unzip -a customcarthage.zip
+            ls customcarthage
+            chmod 111 customcarthage/carthage
+          #  brew uninstall --force carthage
+           # brew install https://github.com/Homebrew/homebrew-core/raw/df3be3a1882f7d2ea98efac4c9a1f37792b7097b/Formula/carthage.rb
+
+          #brew outdated carthage || brew upgrade carthage
+      - run:
+          name: build 
+          command: |
+            instruments -s devices
+            xcodebuild -project AWSiOSSDKv2.xcodeproj -scheme AWSAllTests -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 8,OS=11.2' build     
+      - run:
+          name: Build Cathage
+          command: |
+            customcarthage/carthage build --no-skip-current | tee buildout.txt
+          no_output_timeout: 100m
+      - run:
+          name: Create Cathage Archive
+          command: |
+            bash CreateCarthageArchive.sh   
+          no_output_timeout: 30m
+
+
+  release_cocoapods:
+    # Specify the Xcode version to use
+    macos:
+      xcode: "10.0.0"
+    steps:
+      - checkout  
+      - run:
+          name: Release cocoapods
+          command : python3    cocoapods_release.py
+  release_appledoc:
+    # Specify the Xcode version to use
+    macos:
+      xcode: "9.2.0"
+    steps:
+      - checkout  
+ 
+      - run:
+          name: Install appledoc 
+          command: |
+            pwd
+            pushd $TMPDIR
+            git clone https://github.com/tomaz/appledoc
+            cd appledoc
+            bash install-appledoc.sh -t default
+            popd 
+            pwd
+
+      - run:
+          name: generate documents
+          command: bash ./Scripts/GenerateAppleDocs.sh
+
+      - run:
+          name: copy documents
+          command: |
+            git checkout  gh-pages
+            cp -R docs/html/*   docs/reference/
+
+      - run:
+          name: checkin documents
+          command: |
+            git add docs/reference
+            git commit -m "Update document via CircleCI"
+            git push -q https://${GITHUB_TOKEN}@github.com/aws/aws-sdk-ios.git  
+  test_appledoc:
+    # Specify the Xcode version to use
+    macos:
+      xcode: "9.2.0"
+    steps:
+      - checkout  
+ 
+      - run:
+          name: Install appledoc 
+          command: |
+            pwd
+            pushd $TMPDIR
+            git clone https://github.com/tomaz/appledoc
+            cd appledoc
+            bash install-appledoc.sh -t default
+            popd 
+            pwd
+
+      - run:
+          name: generate documents
+          command: bash ./Scripts/GenerateAppleDocs.sh
+
+      - run:
+          name: copy documents
+          command: |
+            zip -r docs.zip docs
+            zip -r Documentation.zip Documentation
+             
+             
+
+      - store_artifacts:
+          path: docs.zip
+
+      - store_artifacts:
+          path: Documentation.zip
+
+
+workflows:
+  version: 2
+  build_and_test:
+    jobs: 
+      - build:
+          filters:
+            branches:
+              ignore: /test.*/
+
+      - unittest:
+          requires:
+            - build
+          filters:
+            branches:
+              ignore: /test.*/
+
+      - integrationtest:
+#          requires:
+ #           - build
+          filters:
+            branches:
+              only: testcircleciaaa       
+
+      - test_appledoc:
+#          requires:
+ #           - build
+          filters:
+            branches:
+              only: testcircleci                       
+
+      - release_carthage:
+          filters:
+            branches:
+              only: testcirclecisss
+
+
+
+      - release_cocoapods:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^test[0-9]+.[0-9]+.[0-9]+$/
+      - release_appledoc:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^test[0-9]+.[0-9]+.[0-9]+$/

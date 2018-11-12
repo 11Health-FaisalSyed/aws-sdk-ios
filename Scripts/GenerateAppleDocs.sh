@@ -62,6 +62,7 @@ else
     cp -r AWSAuthSDK/Sources/AWSGoogleSignIn ./docs_tmp/AWSAuthSDK/
     cp -r AWSAuthSDK/Sources/AWSUserPoolsSignIn ./docs_tmp/AWSAuthSDK/
     cp -r AWSAuthSDK/Sources/AWSAuthUI ./docs_tmp/AWSAuthSDK/
+    cp -r AWSAuthSDK/Sources/AWSMobileClient ./docs_tmp/AWSMobileClient/
 
     rm -rf ./docs_tmp/AWSCore/Bolts
     rm -rf ./docs_tmp/AWSCore/Fabric
