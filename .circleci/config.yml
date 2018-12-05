@@ -4,6 +4,22 @@
 #
 version: 2
 jobs:
+  run_ui_test:
+    # Specify the Xcode version to use
+    macos:
+      xcode: "9.2.0"
+    steps:
+      - checkout
+      - run:
+          name: Run Sample UI Test
+          command: |
+            git clone https://github.com/awslabs/aws-sdk-ios-samples.git
+            cd aws-sdk-ios-samples
+            cd S3TransferUtility-Sample/Swift/
+            echo ${awsconfiguration} | base64 --decode > S3BackgroundTransferSampleSwift/awsconfiguration.json
+            cat S3BackgroundTransferSampleSwift/awsconfiguration.json
+            pod install
+            xcodebuild -workspace S3TransferUtilitySampleSwift.xcworkspace -scheme "S3TransferUtilitySampleSwiftUITests" -destination 'platform=iOS Simulator,name=iPhone 8 Plus,OS=11.2' test
 
   release_carthage:
     # Specify the Xcode version to use
@@ -85,19 +101,31 @@ workflows:
   version: 2
   build_and_test:
     jobs: 
+      - run_ui_test:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^[0-9]+.[0-9]+.[0-9]+$/
       - release_carthage:
+          requires:
+            - run_ui_test
           filters:
             branches:
               ignore: /.*/
             tags:
               only: /^[0-9]+.[0-9]+.[0-9]+$/
       - release_cocoapods:
+          requires:
+            - run_ui_test
           filters:
             branches:
               ignore: /.*/
             tags:
               only: /^[0-9]+.[0-9]+.[0-9]+$/
       - release_appledoc:
+          requires:
+            - run_ui_test
           filters:
             branches:
               ignore: /.*/
